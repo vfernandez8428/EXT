@@ -4,15 +4,16 @@ export async function GET() {
   const hasZAI = await checkZAI()
   const hasGemini = !!process.env.GEMINI_API_KEY
 
-  const provider = hasZAI ? 'z-ai' : hasGemini ? 'gemini' : 'none'
+  const provider = hasZAI ? 'z-ai' : hasGemini ? 'gemini' : 'tesseract'
 
   return NextResponse.json({
     provider,
     hasZAI,
     hasGemini,
+    hasTesseract: true,
     message:
-      provider === 'none'
-        ? 'Configura GEMINI_API_KEY como variable de entorno para habilitar la extracción de facturas.'
+      provider === 'tesseract'
+        ? 'Usando OCR local (Tesseract.js). Funciona sin API externa.'
         : provider === 'gemini'
           ? 'Usando Google Gemini API para extracción de facturas.'
           : 'Extracción de facturas activa.',

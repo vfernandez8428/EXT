@@ -107,24 +107,20 @@ export default function Home() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-4xl mx-auto w-full px-4 sm:px-6 py-6 space-y-6">
-        {/* API Status Banner */}
-        {apiStatus && apiStatus.provider === 'none' && (
-          <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30 p-4">
-            <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+        {/* Provider Info Banner */}
+        {apiStatus && (apiStatus.provider === 'tesseract') && (
+          <div className="flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-900/50 dark:bg-blue-950/30 p-4">
+            <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                API de IA no configurada
+              <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                Modo OCR local (Tesseract.js)
               </p>
-              <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
-                Para extraer facturas necesitas configurar una API. Ve a Render → Environment y agrega la variable{' '}
-                <code className="rounded bg-amber-100 dark:bg-amber-900/50 px-1.5 py-0.5 font-mono text-xs">
+              <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                Extracción sin API externa. Para mejor precisión con IA, configura{' '}
+                <code className="rounded bg-blue-100 dark:bg-blue-900/50 px-1.5 py-0.5 font-mono text-xs">
                   GEMINI_API_KEY
                 </code>
-                {' '}con tu clave de Google Gemini API (gratis en{' '}
-                <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="underline hover:text-amber-900 dark:hover:text-amber-100">
-                  aistudio.google.com/apikey
-                </a>
-                ).
+                {' '}en Render.
               </p>
             </div>
           </div>

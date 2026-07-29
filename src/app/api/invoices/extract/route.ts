@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { parseInvoiceText, type ParsedInvoice } from '@/lib/invoice-parser'
 
 const INVOICE_PROMPT = `Eres un experto en extracción de datos de facturas. Analiza esta imagen/documento de factura y extrae toda la información posible.
 
@@ -83,22 +84,13 @@ async function extractWithGemini(base64: string, fileType: string): Promise<stri
   const mimeType = fileType === 'application/pdf' ? 'application/pdf' : fileType
 
   const body: Record<string, unknown> = {
-    contents: [
-      {
-        parts: [
-          { text: INVOICE_PROMPT },
-          {
-            inlineData: {
-              mimeType,
-              data: base64,
-            },
-          },
-        ],
-      },
-    ],
-    generationConfig: {
-      temperature: 0.1,
-    },
+    contents: [{
+      parts: [
+        { text: INVOICE_PROMPT },
+        { inlineData: { mimeType, data: base64 } },
+      ],
+    }],
+    generationConfig: { temperature: 0.1 },
   }
 
   let lastError: Error | null = null
@@ -112,7 +104,6 @@ async function extractWithGemini(base64: string, fileType: string): Promise<stri
       })
 
       if (res.status === 429) {
-        const errText = await res.text()
         lastError = new Error(`Gemini ${model}: cuota agotada`)
         console.warn(`[Gemini] ${model} cuota agotada, probando siguiente modelo...`)
         continue
@@ -139,6 +130,24 @@ async function extractWithGemini(base64: string, fileType: string): Promise<stri
   throw lastError || new Error('Todos los modelos Gemini fallaron')
 }
 
+// ---------- Provider: Tesseract.js OCR (local, no API needed) ----------
+async function extractWithTesseract(buffer: Buffer): Promise<ParsedInvoice> {
+  const Tesseract = await import('tesseract.js')
+
+  // For PDFs, Tesseract needs image input — skip OCR and return empty
+  // (PDF OCR would require pdf-to-image conversion which is complex)
+  const result = await Tesseract.default.createWorker('spa+eng', 1, {
+    logger: () => {},
+  })
+
+  try {
+    const { data: { text } } = await result.recognize(buffer)
+    return parseInvoiceText(text)
+  } finally {
+    await result.terminate()
+  }
+}
+
 // ---------- Router ----------
 export async function POST(request: NextRequest) {
   try {
@@ -153,11 +162,7 @@ export async function POST(request: NextRequest) {
     }
 
     const allowedTypes = [
-      'image/jpeg',
-      'image/png',
-      'image/gif',
-      'image/webp',
-      'image/bmp',
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp',
       'application/pdf',
     ]
 
@@ -179,37 +184,50 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(bytes)
     const base64 = buffer.toString('base64')
 
-    // Try z-ai-web-dev-sdk first (available in Z.ai sandbox), fallback to Gemini
+    // Provider priority: z-ai (sandbox) → Gemini (external API) → Tesseract (local OCR)
     let rawText = ''
     let provider = 'none'
+    let parsedFromOcr: ParsedInvoice | null = null
 
     try {
       rawText = await extractWithZAI(base64, file.type)
       provider = 'z-ai'
     } catch {
-      // z-ai not available (e.g. on Render), try Gemini
       try {
         rawText = await extractWithGemini(base64, file.type)
         provider = 'gemini'
-      } catch (geminiErr: unknown) {
-        const msg = geminiErr instanceof Error ? geminiErr.message : 'Error desconocido'
-        return NextResponse.json(
-          { error: `No se pudo procesar la factura. Configura una API de IA: ${msg}` },
-          { status: 500 }
-        )
+      } catch {
+        // Fallback to local OCR
+        if (file.type === 'application/pdf') {
+          return NextResponse.json(
+            { error: 'OCR local no soporta PDFs. Sube una imagen (JPG, PNG) o configura GEMINI_API_KEY.' },
+            { status: 500 }
+          )
+        }
+        console.log('[Tesseract] Usando OCR local como fallback...')
+        parsedFromOcr = await extractWithTesseract(buffer)
+        provider = 'tesseract'
       }
     }
 
     let parsed: Record<string, unknown>
-    try {
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        parsed = JSON.parse(jsonMatch[0])
-      } else {
+
+    if (parsedFromOcr) {
+      // OCR result already parsed — convert to same format
+      parsed = parsedFromOcr as unknown as Record<string, unknown>
+      rawText = `OCR Extraction (Tesseract.js)\n${JSON.stringify(parsedFromOcr, null, 2)}`
+    } else {
+      // AI result — parse JSON from text
+      try {
+        const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          parsed = JSON.parse(jsonMatch[0])
+        } else {
+          parsed = { rawExtraction: rawText }
+        }
+      } catch {
         parsed = { rawExtraction: rawText }
       }
-    } catch {
-      parsed = { rawExtraction: rawText }
     }
 
     const itemsJson = parsed.items ? JSON.stringify(parsed.items) : null
