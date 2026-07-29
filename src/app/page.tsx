@@ -5,7 +5,7 @@ import { InvoiceUpload } from '@/components/invoice-upload'
 import { InvoiceCard } from '@/components/invoice-card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { FileText, Search, Trash2, RefreshCw, Receipt } from 'lucide-react'
+import { FileText, Search, Trash2, RefreshCw, Receipt, AlertTriangle, CheckCircle2, Info } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Invoice } from '@/lib/types'
 import { formatCurrency } from '@/lib/types'
@@ -15,6 +15,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true)
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
+  const [apiStatus, setApiStatus] = useState<{ provider: string; message: string } | null>(null)
 
   const fetchInvoices = useCallback(async () => {
     setIsLoading(true)
@@ -33,6 +34,10 @@ export default function Home() {
 
   useEffect(() => {
     fetchInvoices()
+    fetch('/api/status')
+      .then(r => r.json())
+      .then(setApiStatus)
+      .catch(() => {})
   }, [fetchInvoices])
 
   const handleDelete = useCallback(async (id: string) => {
@@ -102,6 +107,29 @@ export default function Home() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-4xl mx-auto w-full px-4 sm:px-6 py-6 space-y-6">
+        {/* API Status Banner */}
+        {apiStatus && apiStatus.provider === 'none' && (
+          <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30 p-4">
+            <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                API de IA no configurada
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                Para extraer facturas necesitas configurar una API. Ve a Render → Environment y agrega la variable{' '}
+                <code className="rounded bg-amber-100 dark:bg-amber-900/50 px-1.5 py-0.5 font-mono text-xs">
+                  GEMINI_API_KEY
+                </code>
+                {' '}con tu clave de Google Gemini API (gratis en{' '}
+                <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="underline hover:text-amber-900 dark:hover:text-amber-100">
+                  aistudio.google.com/apikey
+                </a>
+                ).
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Upload Section */}
         <section>
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">

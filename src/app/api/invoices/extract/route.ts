@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import ZAI from 'z-ai-web-dev-sdk'
 
 const INVOICE_PROMPT = `Eres un experto en extracción de datos de facturas. Analiza esta imagen/documento de factura y extrae toda la información posible.
 
@@ -38,6 +37,82 @@ Reglas:
 - Si hay impuestos desglosados (IVA, IGV, etc.), inclúyelos en el campo "tax" y la tasa en "taxRate"
 - Responde SOLO con el JSON, sin ningún texto antes o después`
 
+// ---------- Provider: z-ai-web-dev-sdk (Z.ai sandbox) ----------
+async function extractWithZAI(base64: string, fileType: string): Promise<string> {
+  const ZAI = (await import('z-ai-web-dev-sdk')).default
+  const zai = await ZAI.create()
+
+  let content: Array<{ type: string; text?: string; image_url?: { url: string }; file_url?: { url: string } }>
+
+  if (fileType === 'application/pdf') {
+    content = [
+      { type: 'text', text: INVOICE_PROMPT },
+      { type: 'file_url', file_url: { url: `data:application/pdf;base64,${base64}` } },
+    ]
+  } else {
+    content = [
+      { type: 'text', text: INVOICE_PROMPT },
+      { type: 'image_url', image_url: { url: `data:${fileType};base64,${base64}` } },
+    ]
+  }
+
+  const response = await zai.chat.completions.createVision({
+    messages: [
+      {
+        role: 'user',
+        content: content as any,
+      },
+    ],
+    thinking: { type: 'disabled' },
+  })
+
+  return response.choices[0]?.message?.content || ''
+}
+
+// ---------- Provider: Google Gemini API (Render / external) ----------
+async function extractWithGemini(base64: string, fileType: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) throw new Error('GEMINI_API_KEY no configurada')
+
+  const mimeType = fileType === 'application/pdf' ? 'application/pdf' : fileType
+  const model = 'gemini-2.0-flash'
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+
+  const body: Record<string, unknown> = {
+    contents: [
+      {
+        parts: [
+          { text: INVOICE_PROMPT },
+          {
+            inlineData: {
+              mimeType,
+              data: base64,
+            },
+          },
+        ],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.1,
+    },
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) {
+    const errText = await res.text()
+    throw new Error(`Gemini API error ${res.status}: ${errText}`)
+  }
+
+  const data = await res.json()
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+}
+
+// ---------- Router ----------
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
@@ -77,33 +152,26 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(bytes)
     const base64 = buffer.toString('base64')
 
-    const zai = await ZAI.create()
+    // Try z-ai-web-dev-sdk first (available in Z.ai sandbox), fallback to Gemini
+    let rawText = ''
+    let provider = 'none'
 
-    let content: Array<{ type: string; text?: string; image_url?: { url: string }; file_url?: { url: string } }>
-
-    if (file.type === 'application/pdf') {
-      content = [
-        { type: 'text', text: INVOICE_PROMPT },
-        { type: 'file_url', file_url: { url: `data:application/pdf;base64,${base64}` } },
-      ]
-    } else {
-      content = [
-        { type: 'text', text: INVOICE_PROMPT },
-        { type: 'image_url', image_url: { url: `data:${file.type};base64,${base64}` } },
-      ]
+    try {
+      rawText = await extractWithZAI(base64, file.type)
+      provider = 'z-ai'
+    } catch {
+      // z-ai not available (e.g. on Render), try Gemini
+      try {
+        rawText = await extractWithGemini(base64, file.type)
+        provider = 'gemini'
+      } catch (geminiErr: unknown) {
+        const msg = geminiErr instanceof Error ? geminiErr.message : 'Error desconocido'
+        return NextResponse.json(
+          { error: `No se pudo procesar la factura. Configura una API de IA: ${msg}` },
+          { status: 500 }
+        )
+      }
     }
-
-    const response = await zai.chat.completions.createVision({
-      messages: [
-        {
-          role: 'user',
-          content: content as any,
-        },
-      ],
-      thinking: { type: 'disabled' },
-    })
-
-    const rawText = response.choices[0]?.message?.content || ''
 
     let parsed: Record<string, unknown>
     try {
@@ -147,7 +215,7 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    return NextResponse.json({ success: true, invoice })
+    return NextResponse.json({ success: true, invoice, provider })
   } catch (error: unknown) {
     console.error('Error extracting invoice:', error)
     const message = error instanceof Error ? error.message : 'Error interno del servidor'
