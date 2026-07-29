@@ -108,7 +108,6 @@ export default function Home() {
             Cargar Factura
           </h2>
           <InvoiceUpload
-            onUploadStart={() => {}}
             onUploadComplete={fetchInvoices}
           />
         </section>
@@ -206,7 +205,7 @@ function EmptyState() {
         Sin facturas procesadas
       </h3>
       <p className="text-sm text-muted-foreground max-w-sm">
-        Carga una imagen o PDF de factura arriba para extraer automáticamente su información con inteligencia artificial.
+        Carga imágenes o PDFs de facturas (puedes seleccionar varios a la vez) para extraer automáticamente su información con inteligencia artificial.
       </p>
     </div>
   )
