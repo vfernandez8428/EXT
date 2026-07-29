@@ -70,13 +70,17 @@ async function extractWithZAI(base64: string, fileType: string): Promise<string>
 }
 
 // ---------- Provider: Google Gemini API (Render / external) ----------
+const GEMINI_MODELS = [
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
+  'gemini-1.5-flash-8b',
+]
+
 async function extractWithGemini(base64: string, fileType: string): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) throw new Error('GEMINI_API_KEY no configurada')
 
   const mimeType = fileType === 'application/pdf' ? 'application/pdf' : fileType
-  const model = 'gemini-2.0-flash'
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
 
   const body: Record<string, unknown> = {
     contents: [
@@ -97,19 +101,42 @@ async function extractWithGemini(base64: string, fileType: string): Promise<stri
     },
   }
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
+  let lastError: Error | null = null
+  for (const model of GEMINI_MODELS) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
 
-  if (!res.ok) {
-    const errText = await res.text()
-    throw new Error(`Gemini API error ${res.status}: ${errText}`)
+      if (res.status === 429) {
+        const errText = await res.text()
+        lastError = new Error(`Gemini ${model}: cuota agotada`)
+        console.warn(`[Gemini] ${model} cuota agotada, probando siguiente modelo...`)
+        continue
+      }
+
+      if (!res.ok) {
+        const errText = await res.text()
+        lastError = new Error(`Gemini API error ${res.status}: ${errText.substring(0, 200)}`)
+        console.warn(`[Gemini] ${model} error, probando siguiente modelo...`)
+        continue
+      }
+
+      const data = await res.json()
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+      if (text) return text
+
+      lastError = new Error(`Gemini ${model}: respuesta vacía`)
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      console.warn(`[Gemini] ${model} falló, probando siguiente modelo...`)
+    }
   }
 
-  const data = await res.json()
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+  throw lastError || new Error('Todos los modelos Gemini fallaron')
 }
 
 // ---------- Router ----------
