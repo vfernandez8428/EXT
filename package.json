@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
-    "build": "npx prisma generate && next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
+    "build": "npx prisma generate && next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/ && cp -r node_modules/.prisma .next/standalone/node_modules/.prisma",
     "start": "node scripts/render-start.cjs",
     "start:standard": "next start",
     "lint": "eslint .",
