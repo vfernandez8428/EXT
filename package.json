@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
-    "build": "npx prisma generate && npx prisma db push --accept-data-loss && next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
-    "start": "node .next/standalone/server.js",
+    "build": "npx prisma generate && next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
+    "start": "node scripts/render-start.cjs",
     "start:standard": "next start",
     "lint": "eslint .",
     "db:push": "prisma db push --accept-data-loss",
